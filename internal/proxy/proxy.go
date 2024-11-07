@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/elazarl/goproxy"
 )
@@ -30,11 +32,12 @@ type Config struct {
 }
 
 type Proxy struct {
-	logger *slog.Logger
-	dir    string
-	hosts  []string
-	cors   bool
-	proxy  *goproxy.ProxyHttpServer
+	logger      *slog.Logger
+	dir         string
+	hosts       []string
+	cors        bool
+	proxy       *goproxy.ProxyHttpServer
+	downloading sync.Map
 }
 
 func New(c *Config) (*Proxy, error) {
@@ -71,7 +74,7 @@ func (p *Proxy) requestCondition(req *http.Request, ctx *goproxy.ProxyCtx) bool 
 
 func (p *Proxy) handleRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 	p.logger.Debug("incoming request", "url", req.URL)
-	filePath, exists, err := getCachedFile(p.dir, req)
+	filePath, exists, err := getCachedFileInfo(p.dir, req)
 	if err != nil {
 		p.logger.Error("failed to get cache info", "error", err, "url", req.URL)
 		return req, nil
@@ -108,6 +111,71 @@ func (p *Proxy) handleRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.R
 	return req, resp
 }
 
+func (p *Proxy) download(req *http.Request, finalFilePath string) {
+	if _, alreadyDownloading := p.downloading.LoadOrStore(finalFilePath, true); alreadyDownloading {
+		return
+	}
+	defer p.downloading.Delete(finalFilePath)
+
+	if _, err := os.Stat(finalFilePath); err == nil {
+		return
+	}
+
+	partialFilePath, err := getCachedFilePath(path.Join(p.dir, "partial"), req)
+	if err != nil {
+		p.logger.Error("failed to get cache file name", "error", err, "url", req.URL)
+		return
+	}
+
+	clonedRequest := req.Clone(context.Background())
+	clonedRequest.Header.Del("Range")
+
+	p.logger.Debug("downloading file", "url", clonedRequest.URL)
+	resp, err := http.DefaultClient.Do(clonedRequest)
+	if err != nil {
+		p.logger.Error("download request failed", "error", err, "url", clonedRequest.URL)
+		return
+	}
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		p.logger.Error("unexpected status from download", "status", resp.StatusCode, "url", clonedRequest.URL)
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(partialFilePath), 0777); err != nil {
+		p.logger.Error("failed to create directory", "error", err, "url", clonedRequest.URL)
+		return
+	}
+
+	partialFile, err := os.Create(partialFilePath)
+	if err != nil {
+		p.logger.Error("failed to create file", "error", err, "url", clonedRequest.URL)
+		return
+	}
+
+	defer resp.Body.Close()
+	decompressor, err := getDecompressor(resp.Body, resp.Header)
+	if err != nil {
+		p.logger.Error("failed to get decompressor", "error", err)
+		return
+	}
+
+	if _, err := io.Copy(partialFile, decompressor); err != nil {
+		p.logger.Error("download failed", "error", err, "url", clonedRequest.URL)
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(finalFilePath), 0777); err != nil {
+		p.logger.Error("failed to create directory", "error", err, "url", clonedRequest.URL)
+		return
+	}
+
+	if err := os.Rename(partialFilePath, finalFilePath); err != nil {
+		p.logger.Error("failed to rename download", "error", err, "url", clonedRequest.URL)
+		return
+	}
+}
+
 func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
 	if resp == nil {
 		p.logger.Error("unexpected nil response")
@@ -115,12 +183,17 @@ func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http
 	}
 	req := resp.Request
 
-	filePath, exists, err := getCachedFile(p.dir, req)
+	filePath, exists, err := getCachedFileInfo(p.dir, req)
 	if err != nil {
 		p.logger.Error("failed to get cache info", "error", err, "url", req.URL)
 	}
 
 	if exists {
+		return resp
+	}
+
+	if resp.StatusCode == http.StatusPartialContent {
+		go p.download(req, filePath)
 		return resp
 	}
 
@@ -197,12 +270,20 @@ func hostMatches(u *url.URL, hosts []string) bool {
 	return false
 }
 
-func getCachedFile(dir string, request *http.Request) (string, bool, error) {
-	filePath, err := RequestToFilePath(request)
+func getCachedFilePath(dir string, req *http.Request) (string, error) {
+	filePath, err := RequestToFilePath(req)
+	if err != nil {
+		return "", err
+	}
+	filePath = path.Join(dir, filePath)
+	return filePath, nil
+}
+
+func getCachedFileInfo(dir string, req *http.Request) (string, bool, error) {
+	filePath, err := getCachedFilePath(dir, req)
 	if err != nil {
 		return "", false, err
 	}
-	filePath = path.Join(dir, filePath)
 	if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
 		return filePath, false, nil
 	} else if err != nil {
