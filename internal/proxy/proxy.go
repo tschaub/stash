@@ -71,21 +71,21 @@ func (p *Proxy) requestCondition(req *http.Request, ctx *goproxy.ProxyCtx) bool 
 
 func (p *Proxy) handleRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 	p.logger.Debug("incoming request", "url", req.URL)
-	cacheInfo, err := getCacheInfo(p.dir, req)
+	filePath, exists, err := getCachedFile(p.dir, req)
 	if err != nil {
 		p.logger.Error("failed to get cache info", "error", err, "url", req.URL)
 		return req, nil
 	}
 
-	if !cacheInfo.exists {
+	if !exists {
 		p.logger.Debug("cache miss", "url", req.URL)
 		return req, nil
 	}
 
-	p.logger.Debug("cache hit", "file", cacheInfo.filePath, "url", req.URL)
+	p.logger.Debug("cache hit", "file", filePath, "url", req.URL)
 
 	respWriter := &ResponseWriter{}
-	http.ServeFile(respWriter, req, cacheInfo.filePath)
+	http.ServeFile(respWriter, req, filePath)
 
 	resp := &http.Response{
 		StatusCode:       respWriter.statusCode,
@@ -115,12 +115,12 @@ func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http
 	}
 	req := resp.Request
 
-	cacheInfo, err := getCacheInfo(p.dir, req)
+	filePath, exists, err := getCachedFile(p.dir, req)
 	if err != nil {
 		p.logger.Error("failed to get cache info", "error", err, "url", req.URL)
 	}
 
-	if cacheInfo.exists {
+	if exists {
 		return resp
 	}
 
@@ -129,10 +129,10 @@ func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http
 	buffer := &bytes.Buffer{}
 	teeReader := io.TeeReader(resp.Body, buffer)
 
-	p.logger.Debug("caching response", "file", cacheInfo.filePath, "url", req.URL)
+	p.logger.Debug("caching response", "file", filePath, "url", req.URL)
 
-	if err := writeCached(cacheInfo.filePath, teeReader, resp.Header); err != nil {
-		p.logger.Error("failed to write to cache", "file", cacheInfo.filePath, "url", req.URL)
+	if err := writeCached(filePath, teeReader, resp.Header); err != nil {
+		p.logger.Error("failed to write to cache", "file", filePath, "url", req.URL)
 		return goproxy.NewResponse(req, goproxy.ContentTypeText, http.StatusInternalServerError, err.Error())
 	}
 
@@ -141,19 +141,6 @@ func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http
 	clonedResponse.Body = io.NopCloser(buffer)
 
 	return clonedResponse
-}
-
-func getCacheInfo(dir string, req *http.Request) (*CacheInfo, error) {
-	filePath, exists, err := getCachedFile(dir, req)
-	if err != nil {
-		return nil, err
-	}
-
-	info := &CacheInfo{
-		filePath: filePath,
-		exists:   exists,
-	}
-	return info, nil
 }
 
 func writeCached(filePath string, reader io.Reader, header http.Header) error {
@@ -222,11 +209,6 @@ func getCachedFile(dir string, request *http.Request) (string, bool, error) {
 		return filePath, false, err
 	}
 	return filePath, true, nil
-}
-
-type CacheInfo struct {
-	filePath string
-	exists   bool
 }
 
 func RequestToFilePath(request *http.Request) (string, error) {
