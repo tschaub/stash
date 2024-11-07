@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -26,6 +24,7 @@ type Stash struct {
 	Hosts     []string `help:"Cache responses from these hosts" env:"STASH_HOSTS"`
 	CertFile  string   `help:"Path to CA certificate file" type:"existingfile" required:"" env:"STASH_CERT_FILE"`
 	KeyFile   string   `help:"Path to CA private key file" type:"existingfile" required:"" env:"STASH_KEY_FILE"`
+	Cors      bool     `help:"Include CORS support (on by default)." default:"true" negatable:""`
 	LogLevel  string   `help:"Log level" enum:"debug,info,warn,error" default:"info" env:"STASH_LOG_LEVEL"`
 	LogFormat string   `help:"Log format" enum:"text,json" default:"text" env:"STASH_LOG_FORMAT"`
 }
@@ -44,17 +43,26 @@ func (s *Stash) Run() error {
 		return fmt.Errorf("trouble accessing cache directory: %w", err)
 	}
 
-	cert, key, err := loadX509KeyPair(s.CertFile, s.KeyFile)
+	certificate, err := os.ReadFile(s.CertFile)
 	if err != nil {
-		return fmt.Errorf("error loading CA certificate/key: %w", err)
+		return fmt.Errorf("failed to read certificate file: %w", err)
 	}
 
-	stash := &proxy.Proxy{
-		Certificate: cert,
+	key, err := os.ReadFile(s.KeyFile)
+	if err != nil {
+		return fmt.Errorf("failed to read key file: %w", err)
+	}
+
+	stash, err := proxy.New(&proxy.Config{
+		Certificate: certificate,
 		Key:         key,
 		Logger:      logger,
+		Cors:        s.Cors,
 		Dir:         s.Dir,
 		Hosts:       s.Hosts,
+	})
+	if err != nil {
+		return err
 	}
 
 	addr := fmt.Sprintf("127.0.0.1:%d", s.Port)
@@ -82,29 +90,4 @@ func configureLogger(logLevel string, logFormat string) (*slog.Logger, error) {
 	default:
 		return nil, fmt.Errorf("unsupported log format '%s'", logFormat)
 	}
-}
-
-func loadX509KeyPair(certFile, keyFile string) (cert *x509.Certificate, key any, err error) {
-	cf, err := os.ReadFile(certFile)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	kf, err := os.ReadFile(keyFile)
-	if err != nil {
-		return nil, nil, err
-	}
-	certBlock, _ := pem.Decode(cf)
-	cert, err = x509.ParseCertificate(certBlock.Bytes)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	keyBlock, _ := pem.Decode(kf)
-	key, err = x509.ParsePKCS8PrivateKey(keyBlock.Bytes)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return cert, key, nil
 }
