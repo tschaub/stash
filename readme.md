@@ -52,6 +52,25 @@ find "$(mkcert -CAROOT)" -name "*.pem"
 
 Make note of the location of the certificate `rootCA.pem` and key `rootCA-key.pem` files. You'll use the path to the `rootCA.pem` file in the `--cert-file` argument and the path to `rootCA-key.pem` in the `--key-file` argument to `stash`.
 
+You can use a `.env` file to provide values for the `stash` arguments.
+
+```shell
+# example .env file
+STASH_CERT_FILE='/path/to/mkcert/rootCA.pem'
+STASH_KEY_FILE='/path/to/mkcert/rootCA-key.pem'
+STASH_LOG_LEVEL=debug
+STASH_HOSTS=example.com,fonts.googleapis.com
+```
+
+With a `.env` file like the one above, you can run `stash` with no additional arguments. This would be equivalent to running the following (without a `.env` file):
+
+```shell
+stash --cert-file='/path/to/mkcert/rootCA.pem' \
+  --key-file='/path/to/mkcert/rootCA-key.pem' \
+  --log-level=debug \
+  --hosts=example.com,fonts.googleapis.com
+```
+
 With `stash` running, you can configure your browser to use it as a proxy. For example, to launch Chrome using `stash` as a proxy do this:
 
 ```shell
