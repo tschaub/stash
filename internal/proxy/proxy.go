@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -85,10 +88,20 @@ func (p *Proxy) handleRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.R
 		return req, nil
 	}
 
-	p.logger.Debug("cache hit", "file", filePath, "url", req.URL)
+	p.logger.Debug("cache hit", "url", req.URL)
 
-	respWriter := &ResponseWriter{}
-	http.ServeFile(respWriter, req, filePath)
+	respWriter := &ResponseWriter{
+		statusCode: http.StatusOK,
+	}
+	if req.Method == http.MethodOptions {
+		header, err := readCachedHeader(filePath)
+		if err != nil {
+			p.logger.Error("failed to read cached header", "error", err, "url", req.URL)
+		}
+		respWriter.header = header
+	} else {
+		http.ServeFile(respWriter, req, filePath)
+	}
 
 	resp := &http.Response{
 		StatusCode:       respWriter.statusCode,
@@ -103,9 +116,11 @@ func (p *Proxy) handleRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.R
 		Request:          req,
 	}
 
-	if p.cors {
-		headers := resp.Header
-		headers.Set("Access-Control-Allow-Origin", req.Header.Get("Origin"))
+	if p.cors && req.Method != http.MethodOptions {
+		origin := req.Header.Get("Origin")
+		if origin != "" {
+			resp.Header.Set("Access-Control-Allow-Origin", origin)
+		}
 	}
 
 	return req, resp
@@ -130,7 +145,7 @@ func (p *Proxy) download(req *http.Request, finalFilePath string) {
 	clonedRequest := req.Clone(context.Background())
 	clonedRequest.Header.Del("Range")
 
-	p.logger.Debug("downloading file", "url", clonedRequest.URL)
+	p.logger.Debug("starting download", "url", clonedRequest.URL)
 	resp, err := http.DefaultClient.Do(clonedRequest)
 	if err != nil {
 		p.logger.Error("download request failed", "error", err, "url", clonedRequest.URL)
@@ -174,6 +189,7 @@ func (p *Proxy) download(req *http.Request, finalFilePath string) {
 		p.logger.Error("failed to rename download", "error", err, "url", clonedRequest.URL)
 		return
 	}
+	p.logger.Debug("download complete", "url", clonedRequest.URL)
 }
 
 func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
@@ -192,6 +208,13 @@ func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http
 		return resp
 	}
 
+	if req.Method == http.MethodOptions {
+		if err := writeCachedHeader(filePath, resp.Header); err != nil {
+			p.logger.Error("failed to write header to cache", "error", err, "url", req.URL)
+		}
+		return resp
+	}
+
 	if resp.StatusCode == http.StatusPartialContent {
 		go p.download(req, filePath)
 		return resp
@@ -202,10 +225,10 @@ func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http
 	buffer := &bytes.Buffer{}
 	teeReader := io.TeeReader(resp.Body, buffer)
 
-	p.logger.Debug("caching response", "file", filePath, "url", req.URL)
+	p.logger.Debug("caching response", "url", req.URL)
 
 	if err := writeCached(filePath, teeReader, resp.Header); err != nil {
-		p.logger.Error("failed to write to cache", "file", filePath, "url", req.URL)
+		p.logger.Error("failed to write to cache", "error", err, "url", req.URL)
 		return goproxy.NewResponse(req, goproxy.ContentTypeText, http.StatusInternalServerError, err.Error())
 	}
 
@@ -236,6 +259,41 @@ func writeCached(filePath string, reader io.Reader, header http.Header) error {
 		return err
 	}
 	return nil
+}
+
+func writeCachedHeader(filePath string, header http.Header) error {
+	if err := os.MkdirAll(filepath.Dir(filePath), 0777); err != nil {
+		return err
+	}
+
+	file, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	return encoder.Encode(header)
+}
+
+func readCachedHeader(filePath string) (http.Header, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	h := map[string][]string{}
+	if err := json.Unmarshal(data, &h); err != nil {
+		return nil, err
+	}
+
+	header := http.Header{}
+	for k, values := range h {
+		for _, v := range values {
+			header.Add(k, v)
+		}
+	}
+	return header, nil
 }
 
 func getDecompressor(reader io.Reader, header http.Header) (io.ReadCloser, error) {
@@ -302,10 +360,17 @@ func RequestToFilePath(request *http.Request) (string, error) {
 	escapedPath := strings.TrimPrefix(request.URL.EscapedPath(), "/")
 	dir, file := filepath.Split(escapedPath)
 
-	filePath := path.Join(request.Method, request.URL.Scheme, request.URL.Host, dir, "#"+file)
 	if request.URL.RawQuery != "" {
-		filePath += "?" + request.URL.RawQuery
+		hasher := sha256.New()
+		hasher.Write([]byte(request.URL.RawQuery))
+		hash := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+		file += "?" + hash
+		if len(file) > 255 {
+			file = file[:255]
+		}
 	}
+
+	filePath := path.Join(request.Method, request.URL.Scheme, request.URL.Host, dir, "#"+file)
 	return filePath, nil
 }
 

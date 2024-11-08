@@ -45,7 +45,12 @@ func TestUrlToFilePath(t *testing.T) {
 		{
 			m: http.MethodGet,
 			u: "https://example.com/foo/bar?bam=baz",
-			p: "GET/https/example.com/foo/#bar?bam=baz",
+			p: "GET/https/example.com/foo/#bar?Zr0Oj6-1pxy_lUJzgcb3eJWPYD1I-vlgv0wl_Vk5g6w=",
+		},
+		{
+			m: http.MethodGet,
+			u: "https://example.com/foo/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx?bam=baz",
+			p: "GET/https/example.com/foo/#xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx?Zr0Oj6-1pxy_lU",
 		},
 		{
 			m: http.MethodGet,
