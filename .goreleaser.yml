@@ -1,0 +1,45 @@
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - binary: stash
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+archives:
+  - name_template: >-
+      {{ .ProjectName }}-
+      {{- .Os }}-
+      {{- .Arch }}
+dockers:
+  - image_templates:
+      - "ghcr.io/tschaub/{{ .ProjectName }}:{{ .Tag }}"
+      - "ghcr.io/tschaub/{{ .ProjectName }}:v{{ .Major }}"
+    build_flag_templates:
+      - --label=org.opencontainers.image.licenses=MIT
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.revision={{ .FullCommit }}
+      - --label=org.opencontainers.image.created={{ time "2006-01-02T15:04:05Z07:00" }}
+      - --label=org.opencontainers.image.url=https://github.com/tschaub/{{ .ProjectName }}
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+changelog:
+  sort: asc
+  use: github-native
+brews:
+  - repository:
+      owner: tschaub
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    url_template: "https://github.com/tschaub/{{ .ProjectName }}/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    homepage: "https://github.com/tschaub/{{ .ProjectName }}"
+    description: "Caching proxy for offline demos."
+    license: "MIT"
+    test: |
+      system "#{bin}/stash --help"
