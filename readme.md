@@ -12,7 +12,6 @@ Flags:
       --hosts=HOSTS,...      Cache responses from these hosts ($STASH_HOSTS)
       --cert-file=STRING     Path to CA certificate file ($STASH_CERT_FILE)
       --key-file=STRING      Path to CA private key file ($STASH_KEY_FILE)
-      --[no-]cors            Include CORS support (on by default).
       --log-level="info"     Log level ($STASH_LOG_LEVEL)
       --log-format="text"    Log format ($STASH_LOG_FORMAT)
 ```
