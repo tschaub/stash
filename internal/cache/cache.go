@@ -37,11 +37,17 @@ func NewItem(cacheDir string, req *http.Request) (*Item, error) {
 
 	dir, file := filepath.Split(req.URL.EscapedPath())
 
+	var extra string
 	if req.URL.RawQuery != "" {
 		hasher := sha256.New()
 		hasher.Write([]byte(req.URL.RawQuery))
-		hash := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
-		file += "?" + hash
+		extra = base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+	}
+
+	// TODO: hash the body too
+
+	if extra != "" {
+		file += "?" + extra
 		if len(file) > maxFileNameLength {
 			file = file[:maxFileNameLength]
 		}
@@ -245,6 +251,10 @@ func (w *responseWriter) Write(data []byte) (int, error) {
 }
 
 var selectHeaders = []string{
+	"Access-Control-Allow-Credentials",
+	"Access-Control-Allow-Headers",
+	"Access-Control-Allow-Methods",
+	"Access-Control-Allow-Origin",
 	"Content-Type",
 }
 
