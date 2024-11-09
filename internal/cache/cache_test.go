@@ -1,8 +1,10 @@
 package cache_test
 
 import (
+	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +15,7 @@ import (
 func TestNewItem(t *testing.T) {
 	cases := []struct {
 		method string
+		body   string
 		dir    string
 		url    string
 		key    string
@@ -23,6 +26,13 @@ func TestNewItem(t *testing.T) {
 			dir:    "base",
 			url:    "https://example.com/foo/bar",
 			key:    "base/GET/https/example.com/foo/#body#bar",
+		},
+		{
+			method: http.MethodPost,
+			body:   "example post body",
+			dir:    "base",
+			url:    "https://example.com/foo/bar",
+			key:    "base/POST/https/example.com/foo/#body#bar?alAlQ_ChTDxBRLzeTmqgXqkBuHIvGo1fj1rl_IHFCn8=",
 		},
 		{
 			method: http.MethodHead,
@@ -86,6 +96,9 @@ func TestNewItem(t *testing.T) {
 			}
 
 			request := &http.Request{URL: u, Method: c.method}
+			if c.body != "" {
+				request.Body = io.NopCloser(strings.NewReader(c.body))
+			}
 			item, err := cache.NewItem(c.dir, request)
 			if err != nil {
 				require.EqualError(t, err, c.err)

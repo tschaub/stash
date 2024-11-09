@@ -37,17 +37,37 @@ func NewItem(cacheDir string, req *http.Request) (*Item, error) {
 
 	dir, file := filepath.Split(req.URL.EscapedPath())
 
-	var extra string
+	extra := false
+	hasher := sha256.New()
 	if req.URL.RawQuery != "" {
-		hasher := sha256.New()
 		hasher.Write([]byte(req.URL.RawQuery))
-		extra = base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+		extra = true
 	}
 
-	// TODO: hash the body too
+	if req.Body != nil {
+		body := req.Body
+		buffer := &bytes.Buffer{}
+		if _, err := io.Copy(buffer, body); err != nil {
+			req.Body = struct {
+				io.Closer
+				io.Reader
+			}{
+				Closer: body,
+				Reader: io.MultiReader(buffer, body),
+			}
+			return nil, err
+		}
 
-	if extra != "" {
-		file += "?" + extra
+		defer body.Close()
+		req.Body = io.NopCloser(buffer)
+		if buffer.Len() > 0 {
+			hasher.Write(buffer.Bytes())
+			extra = true
+		}
+	}
+
+	if extra {
+		file += "?" + base64.URLEncoding.EncodeToString(hasher.Sum(nil))
 		if len(file) > maxFileNameLength {
 			file = file[:maxFileNameLength]
 		}
@@ -165,6 +185,14 @@ func (i *Item) Move(dir string) (*Item, error) {
 	}
 
 	return newItem, nil
+}
+
+func (i *Item) Rebase(dir string) *Item {
+	return &Item{
+		baseDir:     dir,
+		relBodyPath: i.relBodyPath,
+		relMetaPath: i.relMetaPath,
+	}
 }
 
 type Meta struct {

@@ -81,6 +81,7 @@ func (p *Proxy) handleRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.R
 		p.logger.Error("failed to get new cache item", "error", err, "url", req.URL, "method", req.Method)
 		return req, nil
 	}
+	ctx.UserData = cacheItem
 
 	exists, err := cacheItem.Exists()
 	if err != nil {
@@ -116,9 +117,11 @@ func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http
 	}
 	req := resp.Request
 
-	cacheItem, err := cache.NewItem(p.cacheDir(), req)
-	if err != nil {
-		p.logger.Error("failed to get cache item", "error", err, "url", req.URL, "method", req.Method)
+	var cacheItem *cache.Item
+	if i, ok := ctx.UserData.(*cache.Item); ok && i != nil {
+		cacheItem = i
+	} else {
+		p.logger.Error("missing cache item in response handler user data", "url", req.URL)
 		return resp
 	}
 
@@ -142,7 +145,7 @@ func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http
 	}
 
 	if resp.StatusCode == http.StatusPartialContent {
-		go p.download(req)
+		go p.download(req, cacheItem)
 		return resp
 	}
 
@@ -165,11 +168,8 @@ func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http
 	return clonedResponse
 }
 
-func (p *Proxy) download(req *http.Request) {
-	tempCacheItem, err := cache.NewItem(p.tempDir(), req)
-	if err != nil {
-		p.logger.Error("download failed", "error", err, "url", req.URL, "method", req.Method)
-	}
+func (p *Proxy) download(req *http.Request, cacheItem *cache.Item) {
+	tempCacheItem := cacheItem.Rebase(p.tempDir())
 
 	cacheKey := tempCacheItem.Key()
 	if _, alreadyDownloading := p.downloading.LoadOrStore(cacheKey, true); alreadyDownloading {
@@ -181,7 +181,7 @@ func (p *Proxy) download(req *http.Request) {
 	clonedRequest := req.Clone(context.Background())
 	clonedRequest.Header.Del("Range")
 
-	p.logger.Debug("starting download", "url", clonedRequest.URL, "method", req.Method)
+	p.logger.Info("starting download", "url", clonedRequest.URL, "method", req.Method)
 	resp, err := http.DefaultClient.Do(clonedRequest)
 	if err != nil {
 		p.logger.Error("download request failed", "error", err, "url", clonedRequest.URL, "method", req.Method)
@@ -202,7 +202,7 @@ func (p *Proxy) download(req *http.Request) {
 	if _, err := tempCacheItem.Move(p.cacheDir()); err != nil {
 		p.logger.Error("failed to rename download", "error", err, "url", clonedRequest.URL, "method", req.Method)
 	}
-	p.logger.Debug("download complete", "url", clonedRequest.URL, "method", req.Method)
+	p.logger.Info("download complete", "url", clonedRequest.URL, "method", req.Method)
 }
 
 func hostMatches(u *url.URL, hosts []string) bool {
