@@ -22,7 +22,6 @@ type Config struct {
 	Certificate []byte
 	Key         []byte
 	Logger      *slog.Logger
-	Cors        bool
 	Dir         string
 	Hosts       []string
 }
@@ -31,7 +30,6 @@ type Proxy struct {
 	logger      *slog.Logger
 	dir         string
 	hosts       []string
-	cors        bool
 	proxy       *goproxy.ProxyHttpServer
 	downloading sync.Map
 }
@@ -47,7 +45,6 @@ func New(c *Config) (*Proxy, error) {
 		logger: c.Logger,
 		dir:    c.Dir,
 		hosts:  c.Hosts,
-		cors:   c.Cors,
 		proxy:  proxy,
 	}
 
@@ -103,12 +100,9 @@ func (p *Proxy) handleRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.R
 		p.logger.Error("failed to generate response from cache item", "error", err, "url", req.URL, "method", req.Method)
 	}
 
-	if p.cors && req.Method != http.MethodOptions {
-		if origin := req.Header.Get("Origin"); origin != "" {
+	if origin := req.Header.Get("Origin"); origin != "" {
+		if allowed := resp.Header.Get("Access-Control-Allow-Origin"); allowed != origin {
 			resp.Header.Set("Access-Control-Allow-Origin", origin)
-		}
-		if a := req.Header.Get("Authorization"); a != "" {
-			resp.Header.Set("Access-Control-Allow-Credentials", "true")
 		}
 	}
 

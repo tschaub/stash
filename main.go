@@ -24,7 +24,6 @@ type Stash struct {
 	Hosts     []string `help:"Cache responses from these hosts" env:"STASH_HOSTS"`
 	CertFile  string   `help:"Path to CA certificate file" type:"existingfile" required:"" env:"STASH_CERT_FILE"`
 	KeyFile   string   `help:"Path to CA private key file" type:"existingfile" required:"" env:"STASH_KEY_FILE"`
-	Cors      bool     `help:"Include CORS support (on by default)." default:"true" negatable:""`
 	LogLevel  string   `help:"Log level" enum:"debug,info,warn,error" default:"info" env:"STASH_LOG_LEVEL"`
 	LogFormat string   `help:"Log format" enum:"text,json" default:"text" env:"STASH_LOG_FORMAT"`
 }
@@ -57,7 +56,6 @@ func (s *Stash) Run() error {
 		Certificate: certificate,
 		Key:         key,
 		Logger:      logger,
-		Cors:        s.Cors,
 		Dir:         s.Dir,
 		Hosts:       s.Hosts,
 	})
