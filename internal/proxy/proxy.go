@@ -107,6 +107,9 @@ func (p *Proxy) handleRequest(req *http.Request, ctx *goproxy.ProxyCtx) (*http.R
 		if origin := req.Header.Get("Origin"); origin != "" {
 			resp.Header.Set("Access-Control-Allow-Origin", origin)
 		}
+		if a := req.Header.Get("Authorization"); a != "" {
+			resp.Header.Set("Access-Control-Allow-Credentials", "true")
+		}
 	}
 
 	return req, resp
