@@ -12,20 +12,32 @@ import (
 	"github.com/tschaub/stash/internal/proxy"
 )
 
+var (
+	// set by goreleaser
+	version = "development"
+)
+
 func main() {
-	ctx := kong.Parse(&Stash{}, kong.UsageOnError())
+	ctx := kong.Parse(
+		&Stash{},
+		kong.UsageOnError(),
+		kong.Vars{
+			"version": version,
+		},
+	)
 	err := ctx.Run()
 	ctx.FatalIfErrorf(err)
 }
 
 type Stash struct {
-	Port      int      `help:"Listen on this port." default:"9999" env:"STASH_PORT"`
-	Dir       string   `help:"Path to cache directory" type:"path" default:".stash" env:"STASH_DIR"`
-	Hosts     []string `help:"Cache responses from these hosts" env:"STASH_HOSTS"`
-	CertFile  string   `help:"Path to CA certificate file" type:"existingfile" required:"" env:"STASH_CERT_FILE"`
-	KeyFile   string   `help:"Path to CA private key file" type:"existingfile" required:"" env:"STASH_KEY_FILE"`
-	LogLevel  string   `help:"Log level" enum:"debug,info,warn,error" default:"info" env:"STASH_LOG_LEVEL"`
-	LogFormat string   `help:"Log format" enum:"text,json" default:"text" env:"STASH_LOG_FORMAT"`
+	Port      int              `help:"Listen on this port." default:"9999" env:"STASH_PORT"`
+	Dir       string           `help:"Path to cache directory" type:"path" default:".stash" env:"STASH_DIR"`
+	Hosts     []string         `help:"Cache responses from these hosts" env:"STASH_HOSTS"`
+	CertFile  string           `help:"Path to CA certificate file" type:"existingfile" required:"" env:"STASH_CERT_FILE"`
+	KeyFile   string           `help:"Path to CA private key file" type:"existingfile" required:"" env:"STASH_KEY_FILE"`
+	LogLevel  string           `help:"Log level" enum:"debug,info,warn,error" default:"info" env:"STASH_LOG_LEVEL"`
+	LogFormat string           `help:"Log format" enum:"text,json" default:"text" env:"STASH_LOG_FORMAT"`
+	Version   kong.VersionFlag `help:"Print the version and exit."`
 }
 
 func (s *Stash) Run() error {
