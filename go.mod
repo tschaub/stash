@@ -3,7 +3,7 @@ module github.com/tschaub/stash
 go 1.22.0
 
 require (
-	github.com/alecthomas/kong v1.8.0
+	github.com/alecthomas/kong v1.8.1
 	github.com/elazarl/goproxy v1.7.1
 	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.10.0
