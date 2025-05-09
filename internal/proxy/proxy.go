@@ -149,7 +149,7 @@ func (p *Proxy) handleResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http
 		return resp
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	buffer := &bytes.Buffer{}
 	teeReader := io.TeeReader(resp.Body, buffer)
 
@@ -193,7 +193,7 @@ func (p *Proxy) download(req *http.Request, cacheItem *cache.Item) {
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	meta := &cache.Meta{Header: resp.Header, StatusCode: resp.StatusCode}
 	if err := tempCacheItem.Write(resp.Body, meta); err != nil {
 		p.logger.Error("failed to cache download", "error", err, "url", clonedRequest.URL, "method", req.Method)
