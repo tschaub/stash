@@ -58,7 +58,7 @@ func NewItem(cacheDir string, req *http.Request) (*Item, error) {
 			return nil, err
 		}
 
-		defer body.Close()
+		defer func() { _ = body.Close() }()
 		req.Body = io.NopCloser(buffer)
 		if buffer.Len() > 0 {
 			hasher.Write(buffer.Bytes())
@@ -144,7 +144,7 @@ func (i *Item) Write(body io.Reader, meta *Meta) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if body == nil {
 		return nil
@@ -209,7 +209,7 @@ func writeMeta(filePath string, meta *Meta) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	encoder := json.NewEncoder(file)
 	return encoder.Encode(meta)
